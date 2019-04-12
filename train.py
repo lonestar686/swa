@@ -55,139 +55,165 @@ print('Using model %s' % args.model)
 model_cfg = getattr(models, args.model)
 
 print('Loading dataset %s from %s' % (args.dataset, args.data_path))
-ds = getattr(torchvision.datasets, args.dataset)
-path = os.path.join(args.data_path, args.dataset.lower())
-train_set = ds(path, train=True, download=True, transform=model_cfg.transform_train)
-test_set = ds(path, train=False, download=True, transform=model_cfg.transform_test)
-loaders = {
-    'train': torch.utils.data.DataLoader(
-        train_set,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=args.num_workers,
-        pin_memory=True
-    ),
-    'test': torch.utils.data.DataLoader(
-        test_set,
-        batch_size=args.batch_size,
-        shuffle=False,
-        num_workers=args.num_workers,
-        pin_memory=True
-    )
-}
-num_classes = max(train_set.train_labels) + 1
 
-print('Preparing model')
-model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
-model.cuda()
+def newmethod6():
+    return datasets
 
+def main():
 
-if args.swa:
-    print('SWA training')
-    swa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
-    swa_model.cuda()
-    swa_n = 0
-else:
-    print('SGD training')
+    ds = getattr(torchvision.datasets, args.dataset)
+    path = os.path.join(args.data_path, args.dataset.lower())
+    train_set = ds(path, train=True, download=True, transform=model_cfg.transform_train)
+    test_set = ds(path, train=False, download=True, transform=model_cfg.transform_test)
+    loaders = {
+        'train': torch.utils.data.DataLoader(
+            train_set,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=args.num_workers,
+            pin_memory=True
+        ),
+        'test': torch.utils.data.DataLoader(
+            test_set,
+            batch_size=args.batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+            pin_memory=True
+        )
+    }
+    num_classes = len(train_set.classes) # max(train_set.train_labels) + 1
+    print(num_classes)
+
+    print('Preparing model')
+    model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
+    model.cuda()
 
 
-def schedule(epoch):
-    t = (epoch) / (args.swa_start if args.swa else args.epochs)
-    lr_ratio = args.swa_lr / args.lr_init if args.swa else 0.01
-    if t <= 0.5:
-        factor = 1.0
-    elif t <= 0.9:
-        factor = 1.0 - (1.0 - lr_ratio) * (t - 0.5) / 0.4
-    else:
-        factor = lr_ratio
-    return args.lr_init * factor
-
-
-criterion = F.cross_entropy
-optimizer = torch.optim.SGD(
-    model.parameters(),
-    lr=args.lr_init,
-    momentum=args.momentum,
-    weight_decay=args.wd
-)
-
-start_epoch = 0
-if args.resume is not None:
-    print('Resume training from %s' % args.resume)
-    checkpoint = torch.load(args.resume)
-    start_epoch = checkpoint['epoch']
-    model.load_state_dict(checkpoint['state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
     if args.swa:
-        swa_state_dict = checkpoint['swa_state_dict']
-        if swa_state_dict is not None:
-            swa_model.load_state_dict(swa_state_dict)
-        swa_n_ckpt = checkpoint['swa_n']
-        if swa_n_ckpt is not None:
-            swa_n = swa_n_ckpt
-
-columns = ['ep', 'lr', 'tr_loss', 'tr_acc', 'te_loss', 'te_acc', 'time']
-if args.swa:
-    columns = columns[:-1] + ['swa_te_loss', 'swa_te_acc'] + columns[-1:]
-    swa_res = {'loss': None, 'accuracy': None}
-
-utils.save_checkpoint(
-    args.dir,
-    start_epoch,
-    state_dict=model.state_dict(),
-    swa_state_dict=swa_model.state_dict() if args.swa else None,
-    swa_n=swa_n if args.swa else None,
-    optimizer=optimizer.state_dict()
-)
-
-for epoch in range(start_epoch, args.epochs):
-    time_ep = time.time()
-
-    lr = schedule(epoch)
-    utils.adjust_learning_rate(optimizer, lr)
-    train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer)
-    if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
-        test_res = utils.eval(loaders['test'], model, criterion)
+        print('SWA training')
+        swa_model = model_cfg.base(*model_cfg.args, num_classes=num_classes, **model_cfg.kwargs)
+        swa_model.cuda()
+        swa_n = 0
     else:
-        test_res = {'loss': None, 'accuracy': None}
+        print('SGD training')
 
-    if args.swa and (epoch + 1) >= args.swa_start and (epoch + 1 - args.swa_start) % args.swa_c_epochs == 0:
-        utils.moving_average(swa_model, model, 1.0 / (swa_n + 1))
-        swa_n += 1
-        if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
-            utils.bn_update(loaders['train'], swa_model)
-            swa_res = utils.eval(loaders['test'], swa_model, criterion)
+
+    def schedule(epoch):
+        t = (epoch) / (args.swa_start if args.swa else args.epochs)
+        lr_ratio = args.swa_lr / args.lr_init if args.swa else 0.01
+        if t <= 0.5:
+            factor = 1.0
+        elif t <= 0.9:
+            factor = 1.0 - (1.0 - lr_ratio) * (t - 0.5) / 0.4
         else:
-            swa_res = {'loss': None, 'accuracy': None}
+            factor = lr_ratio
+        return args.lr_init * factor
 
-    if (epoch + 1) % args.save_freq == 0:
+
+    criterion = F.cross_entropy
+    optimizer = torch.optim.SGD(
+        model.parameters(),
+        lr=args.lr_init,
+        momentum=args.momentum,
+        weight_decay=args.wd
+    )
+
+    start_epoch = 0
+    if args.resume is not None:
+        print('Resume training from %s' % args.resume)
+        checkpoint = torch.load(args.resume)
+        start_epoch = checkpoint['epoch']
+        model.load_state_dict(checkpoint['state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer'])
+        if args.swa:
+            swa_state_dict = checkpoint['swa_state_dict']
+            if swa_state_dict is not None:
+                swa_model.load_state_dict(swa_state_dict)
+            swa_n_ckpt = checkpoint['swa_n']
+            if swa_n_ckpt is not None:
+                swa_n = swa_n_ckpt
+
+    columns = ['ep', 'lr', 'tr_loss', 'tr_acc', 'te_loss', 'te_acc', 'time']
+    if args.swa:
+        columns = columns[:-1] + ['swa_te_loss', 'swa_te_acc'] + columns[-1:]
+        swa_res = {'loss': None, 'accuracy': None}
+
+    utils.save_checkpoint(
+        args.dir,
+        start_epoch,
+        state_dict=model.state_dict(),
+        swa_state_dict=swa_model.state_dict() if args.swa else None,
+        swa_n=swa_n if args.swa else None,
+        optimizer=optimizer.state_dict()
+    )
+
+    for epoch in range(start_epoch, args.epochs):
+        time_ep = time.time()
+
+        lr = schedule(epoch)
+        utils.adjust_learning_rate(optimizer, lr)
+        train_res = utils.train_epoch(loaders['train'], model, criterion, optimizer)
+        if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
+            test_res = utils.eval(loaders['test'], model, criterion)
+        else:
+            test_res = {'loss': None, 'accuracy': None}
+
+        if args.swa and (epoch + 1) >= args.swa_start and (epoch + 1 - args.swa_start) % args.swa_c_epochs == 0:
+            utils.moving_average(swa_model, model, 1.0 / (swa_n + 1))
+            swa_n += 1
+            if epoch == 0 or epoch % args.eval_freq == args.eval_freq - 1 or epoch == args.epochs - 1:
+                utils.bn_update(loaders['train'], swa_model)
+                swa_res = utils.eval(loaders['test'], swa_model, criterion)
+            else:
+                swa_res = {'loss': None, 'accuracy': None}
+
+        if (epoch + 1) % args.save_freq == 0:
+            utils.save_checkpoint(
+                args.dir,
+                epoch + 1,
+                state_dict=model.state_dict(),
+                swa_state_dict=swa_model.state_dict() if args.swa else None,
+                swa_n=swa_n if args.swa else None,
+                optimizer=optimizer.state_dict()
+            )
+
+        time_ep = time.time() - time_ep
+        values = [epoch + 1, lr, train_res['loss'], train_res['accuracy'], test_res['loss'], test_res['accuracy'], time_ep]
+        if args.swa:
+            values = values[:-1] + [swa_res['loss'], swa_res['accuracy']] + values[-1:]
+        table = tabulate.tabulate([values], columns, tablefmt='simple', floatfmt='8.4f')
+        if epoch % 40 == 0:
+            table = table.split('\n')
+            table = '\n'.join([table[1]] + table)
+        else:
+            table = table.split('\n')[2]
+        print(table)
+
+    if args.epochs % args.save_freq != 0:
         utils.save_checkpoint(
             args.dir,
-            epoch + 1,
+            args.epochs,
             state_dict=model.state_dict(),
             swa_state_dict=swa_model.state_dict() if args.swa else None,
             swa_n=swa_n if args.swa else None,
             optimizer=optimizer.state_dict()
         )
 
-    time_ep = time.time() - time_ep
-    values = [epoch + 1, lr, train_res['loss'], train_res['accuracy'], test_res['loss'], test_res['accuracy'], time_ep]
-    if args.swa:
-        values = values[:-1] + [swa_res['loss'], swa_res['accuracy']] + values[-1:]
-    table = tabulate.tabulate([values], columns, tablefmt='simple', floatfmt='8.4f')
-    if epoch % 40 == 0:
-        table = table.split('\n')
-        table = '\n'.join([table[1]] + table)
-    else:
-        table = table.split('\n')[2]
-    print(table)
+# This probably means that you are not using fork to start your
+# child processes and you have forgotten to use the proper idiom
+# in the main module:
 
-if args.epochs % args.save_freq != 0:
-    utils.save_checkpoint(
-        args.dir,
-        args.epochs,
-        state_dict=model.state_dict(),
-        swa_state_dict=swa_model.state_dict() if args.swa else None,
-        swa_n=swa_n if args.swa else None,
-        optimizer=optimizer.state_dict()
-    )
+#     if __name__ == '__main__':
+#         freeze_support()
+#         ...
+
+# The "freeze_support()" line can be omitted if the program
+# is not going to be frozen to produce an executable.
+# https://docs.python.org/2/library/multiprocessing.html#windows
+#
+# On Windows all of your multiprocessing-using code must be guarded by
+# if __name__ == "__main__":
+if __name__ == '__main__':
+    from multiprocessing import freeze_support
+    freeze_support()
+    main()
